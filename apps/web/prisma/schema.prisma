@@ -1,0 +1,210 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String?   @map("password_hash")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  lastLoginAt   DateTime? @map("last_login_at")
+  
+  organizer     Organizer?
+  wallets       Wallet[]
+  orders        Order[]
+  auditLogs     AuditLog[] @relation("ActorUser")
+  scannerLogs   CheckIn[]  @relation("ScannerUser")
+  
+  @@map("users")
+}
+
+model Organizer {
+  id           String  @id @default(cuid())
+  userId       String  @unique @map("user_id")
+  orgName      String  @map("org_name")
+  vatId        String? @map("vat_id")
+  billingEmail String  @map("billing_email")
+  
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events Event[]
+  
+  @@map("organizers")
+}
+
+model Wallet {
+  id        String  @id @default(cuid())
+  userId    String  @map("user_id")
+  address   String
+  chainId   Int     @map("chain_id")
+  isPrimary Boolean @default(false) @map("is_primary")
+  
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tickets Ticket[]
+  
+  @@unique([userId, address, chainId])
+  @@map("wallets")
+}
+
+model TaxProfile {
+  id          String @id @default(cuid())
+  name        String
+  vatRate     Float  @map("vat_rate")
+  description String?
+  
+  events Event[]
+  
+  @@map("tax_profiles")
+}
+
+model Event {
+  id           String    @id @default(cuid())
+  organizerId  String    @map("organizer_id")
+  title        String
+  startAt      DateTime  @map("start_at")
+  endAt        DateTime  @map("end_at")
+  venue        String
+  city         String
+  country      String
+  timezone     String    @map("tz")
+  description  String?
+  taxProfileId String    @map("tax_profile_id")
+  status       String    @default("draft")
+  contractAddress String? @map("contract_address")
+  
+  organizer    Organizer     @relation(fields: [organizerId], references: [id], onDelete: Cascade)
+  taxProfile   TaxProfile    @relation(fields: [taxProfileId], references: [id])
+  ticketTypes  TicketType[]
+  orders       Order[]
+  checkIns     CheckIn[]
+  
+  @@map("events")
+}
+
+model TicketType {
+  id            String    @id @default(cuid())
+  eventId       String    @map("event_id")
+  name          String
+  erc1155TokenId Int      @map("erc1155_token_id")
+  priceCents    Int       @map("price_cents")
+  currency      String    @default("EUR")
+  totalSupply   Int       @map("total_supply")
+  maxPerWallet  Int       @map("max_per_wallet")
+  saleStartAt   DateTime  @map("sale_start_at")
+  saleEndAt     DateTime  @map("sale_end_at")
+  
+  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+  
+  @@unique([eventId, erc1155TokenId])
+  @@map("ticket_types")
+}
+
+model Order {
+  id                String    @id @default(cuid())
+  buyerUserId       String    @map("buyer_user_id")
+  eventId           String    @map("event_id")
+  status            String    @default("pending")
+  totalCents        Int       @map("total_cents")
+  currency          String    @default("EUR")
+  paymentProvider   String    @map("payment_provider")
+  providerIntentId  String?   @map("provider_intent_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  
+  buyer      User        @relation(fields: [buyerUserId], references: [id])
+  event      Event       @relation(fields: [eventId], references: [id])
+  orderItems OrderItem[]
+  payments   Payment[]
+  
+  @@map("orders")
+}
+
+model OrderItem {
+  id             String @id @default(cuid())
+  orderId        String @map("order_id")
+  ticketTypeId   String @map("ticket_type_id")
+  quantity       Int
+  unitPriceCents Int    @map("unit_price_cents")
+  
+  order      Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ticketType TicketType @relation(fields: [ticketTypeId], references: [id])
+  tickets    Ticket[]
+  
+  @@map("order_items")
+}
+
+model Payment {
+  id                String   @id @default(cuid())
+  orderId           String   @map("order_id")
+  provider          String
+  providerPaymentId String   @map("provider_payment_id")
+  amountCents       Int      @map("amount_cents")
+  status            String
+  rawWebhookJson    Json     @map("raw_webhook_json")
+  createdAt         DateTime @default(now()) @map("created_at")
+  
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  @@unique([provider, providerPaymentId])
+  @@map("payments")
+}
+
+model Ticket {
+  id            String    @id @default(cuid())
+  orderItemId   String    @map("order_item_id")
+  tokenId       String    @map("token_id_onchain")
+  walletAddress String    @map("wallet_address")
+  claimedAt     DateTime? @map("claimed_at")
+  
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  wallet    Wallet    @relation(fields: [walletAddress], references: [address])
+  checkIns  CheckIn[]
+  
+  @@unique([tokenId, walletAddress])
+  @@map("tickets")
+}
+
+model CheckIn {
+  id            String    @id @default(cuid())
+  ticketTokenId String    @map("ticket_token_id")
+  eventId       String    @map("event_id")
+  checkedInAt   DateTime  @default(now()) @map("at")
+  method        String    @default("qr")
+  scannerUserId String?   @map("scanner_user_id")
+  txHash        String?   @map("tx_hash")
+  
+  event   Event  @relation(fields: [eventId], references: [id])
+  scanner User?  @relation("ScannerUser", fields: [scannerUserId], references: [id])
+  ticket  Ticket @relation(fields: [ticketTokenId], references: [tokenId])
+  
+  @@map("checkins")
+}
+
+model Webhook {
+  id          String   @id @default(cuid())
+  provider    String
+  eventType   String   @map("event_type")
+  rawJson     Json     @map("raw_json")
+  receivedAt  DateTime @default(now()) @map("received_at")
+  processed   Boolean  @default(false)
+  
+  @@map("webhooks")
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorUserId  String   @map("actor_user_id")
+  scope        String
+  action       String
+  targetId     String?  @map("target_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  metaJson     Json?    @map("meta_json")
+  
+  actor User @relation("ActorUser", fields: [actorUserId], references: [id])
+  
+  @@map("audit_logs")
+}
