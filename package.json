@@ -9,6 +9,8 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
+    "dev:web": "pnpm --filter=web dev",
+    "dev:scanner": "pnpm --filter=scanner dev",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "clean": "pnpm -r clean"
